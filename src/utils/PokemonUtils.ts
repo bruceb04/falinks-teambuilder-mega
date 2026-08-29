@@ -6,7 +6,7 @@ import { MovesetStatistics, Statistics, UsageStatistics } from 'smogon';
 import DexSingleton from '@/models/DexSingleton';
 import FormatManager from '@/models/FormatManager';
 import { AppConfig } from '@/utils/AppConfig';
-import { championsMaxSingleStatPoints, championsMaxTotalStatPoints, isChampionsFormatId } from '@/utils/ChampionsData';
+import { championsMaxSingleStatPoints, championsMaxTotalStatPoints, getChampionsLearnset, isChampionsFormatId } from '@/utils/ChampionsData';
 import { convertObjectNumberValuesToFraction, filterSortLimitObjectByValues, getRandomElement, urlPattern } from '@/utils/Helpers';
 import type { PairUsage, Usage, ValueWithEmojiOption } from '@/utils/Types';
 
@@ -428,14 +428,19 @@ export const getMovesBySpecie = (speciesName?: string, isBaseSpecies: boolean = 
   }
   const isChampions = isChampionsFormatId(format);
 
+  // Champions carries its own learnsets rather than Gen 9's, and each one is already the Pokémon's
+  // complete move pool, so none of the Showdown learnset handling below applies to it
+  const championsLearnset = isChampions ? getChampionsLearnset(species) : undefined;
+  if (championsLearnset) return Promise.resolve(championsLearnset.flatMap((move) => gen.moves.get(move) ?? []));
+
   // read learnset by species
   return gen.learnsets.get(speciesName || '').then(async (l) => {
     const entries = Object.entries(l?.learnset ?? []);
     const hasCurrentSources = entries.some((e) => e[1].some((source) => source.startsWith(`${gen.num}`)));
-    // Champions Pokémon that Gen 9 also has keep their current Showdown learnset; the ones Gen 9
-    // dropped (e.g. Beedrill) have no current learnset at all, so they fall back to the moves they
-    // learned in any generation. Either way the Champions dex only carries the moves Champions has,
-    // so a move the game does not ship never survives the `gen.moves.get` lookup below.
+    // A Champions Pokémon with no Champions learnset of its own falls back to the moves it learned
+    // in any generation, rather than to an empty move list. Gen 9 dropped some of these Pokémon
+    // (e.g. Beedrill) so they have no current learnset either. The Champions dex only carries the
+    // moves Champions has, so a move the game does not ship never survives `gen.moves.get` below.
     const useAnySource = isChampions && !hasCurrentSources;
     const isLearnableSource = (source: string) => useAnySource || source.startsWith(`${gen.num}`);
     const isEggMoveSource = (source: string) => (useAnySource ? /^\d+E/.test(source) : source.startsWith(`${gen.num}E`));

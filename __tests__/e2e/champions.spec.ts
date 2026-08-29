@@ -18,7 +18,7 @@ test('should build a Champions set with Stat Points and without IVs', async ({ p
   await page.getByPlaceholder('Item').fill('floettite');
   await page.getByRole('cell', { name: 'Floettite' }).click();
 
-  // A move that Floette-Eternal only has because Champions gave it a current learnset
+  // A move that Floette-Eternal only has because it is in its Champions move pool
   await page.getByPlaceholder('Move 1').click();
   await page.getByPlaceholder('Move 1').fill('light of ruin');
   await page.getByRole('cell', { name: 'Light of Ruin' }).click();

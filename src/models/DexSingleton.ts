@@ -44,7 +44,7 @@ const championsExists = (d: Data): boolean => {
     case 'Ability':
       return d.id !== 'noability' && isChampionsContent(d.isNonstandard);
     default:
-      // learnsets, types, natures and conditions are shared with Gen 9
+      // types, natures and conditions are shared with Gen 9; learnsets come from `ChampionsLearnsets`
       return true;
   }
 };

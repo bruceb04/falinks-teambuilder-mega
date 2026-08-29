@@ -21,6 +21,7 @@
     "dev": "run-p dev:next dev:ws",
     "dev:next": "next dev",
     "dev:ws": "npx y-websocket@1.4.5 --port 1234",
+    "generate-champions-learnsets": "ts-node -r tsconfig-paths/register -O {\\\"module\\\":\\\"commonjs\\\",\\\"target\\\":\\\"es2020\\\",\\\"paths\\\":{\\\"@/*\\\":[\\\"./src/*\\\"]},\\\"baseUrl\\\":\\\".\\\"} scripts/generate_champions_learnsets.ts",
     "env-pull": "vercel env pull",
     "env-pull-dev": "vercel env pull .env.development.local",
     "export": "next export",

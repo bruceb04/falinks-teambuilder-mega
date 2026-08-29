@@ -6,7 +6,9 @@ import {
   allowsIvCustomization,
   championsItems,
   championsMegaStones,
+  championsMoves,
   championsRegulationMBSpecies,
+  getChampionsLearnset,
   isChampionsFormatId,
   isChampionsMegaForme,
 } from '@/utils/ChampionsData';
@@ -88,19 +90,71 @@ describe('Champions dex', () => {
 });
 
 describe('Champions learnsets', () => {
+  const moveNamesOf = async (species: string, format: string = championsFormat.id) => (await getMovesBySpecie(species, false, format)).map((m) => m.name);
+
+  test('cover every Pokémon of the roster', () => {
+    const withoutLearnset = championsRegulationMBSpecies.filter((name) => !getChampionsLearnset({ id: name })?.length);
+    expect(withoutLearnset).toEqual([]);
+  });
+
+  test('only hold moves that Champions has', () => {
+    const legalMoveNames = new Set(championsMoves);
+    const illegal = championsRegulationMBSpecies.flatMap((name) => (getChampionsLearnset({ id: name }) ?? []).filter((move) => !legalMoveNames.has(move)));
+    expect(Array.from(new Set(illegal))).toEqual([]);
+  });
+
+  test('give back the moves Gen 9 had taken away', async () => {
+    expect(await moveNamesOf('Charizard')).toContain('Ancient Power');
+    expect(await moveNamesOf('Gholdengo')).toContain('Surf');
+    // Showdown's Gen 9 Gholdengo has no Surf anywhere in its learnset
+    expect(await moveNamesOf('Gholdengo', 'gen9vgc2024regg')).not.toContain('Surf');
+  });
+
+  test('drop the moves Champions took away', async () => {
+    const incineroar = await moveNamesOf('Incineroar');
+    expect(incineroar).not.toContain('Knock Off');
+    expect(incineroar).toContain('Fake Out');
+    const grimmsnarl = await moveNamesOf('Grimmsnarl');
+    expect(grimmsnarl).not.toContain('Thunder Wave');
+    expect(grimmsnarl).toContain('Spirit Break');
+  });
+
   test('include moves of Pokémon that have no Gen 9 learnset', async () => {
-    const moves = await getMovesBySpecie('Beedrill', false, championsFormat.id);
-    const moveNames = moves.map((m) => m.name);
+    const moveNames = await moveNamesOf('Beedrill');
     expect(moveNames).toContain('Protect');
     expect(moveNames).toContain('U-turn');
-    // moves that do not exist in Champions are filtered out even when the learnset has them
+    // moves that do not exist in Champions are gone even where a Showdown learnset has them
     expect(moveNames).not.toContain('Pursuit');
     expect(moveNames).not.toContain('Hidden Power');
+  });
+
+  test('are a complete move pool on their own', async () => {
+    // a Showdown learnset needs the base forme's moves and the egg moves of the first evolution
+    // stage added on top of it; a Champions pool already is everything the Pokémon can use
+    const moveNames = await moveNamesOf('Incineroar');
+    expect(moveNames).toHaveLength(getChampionsLearnset({ id: 'Incineroar' })!.length);
+  });
+
+  test('are per forme, and do not borrow from the base forme', async () => {
+    expect(await moveNamesOf('Slowbro-Galar')).toContain('Shell Side Arm');
+    expect(await moveNamesOf('Slowbro')).not.toContain('Shell Side Arm');
+    expect(await moveNamesOf('Tauros-Paldea-Aqua')).toContain('Wave Crash');
+    expect(await moveNamesOf('Tauros-Paldea-Combat')).not.toContain('Wave Crash');
+    // the Ice/Fairy Alolan Ninetales does not get the Fire moves of the Ninetales it is a forme of
+    const alolanNinetales = await moveNamesOf('Ninetales-Alola');
+    expect(alolanNinetales).toContain('Aurora Veil');
+    ['Fire Blast', 'Flamethrower', 'Overheat', 'Will-O-Wisp'].forEach((move) => expect(alolanNinetales).not.toContain(move));
+  });
+
+  test('let a Mega forme use the move pool it Mega Evolves from', () => {
+    const charizard = getChampionsLearnset({ id: 'Charizard' });
+    expect(getChampionsLearnset({ id: 'Charizard-Mega-Y', baseSpecies: 'Charizard' })).toEqual(charizard);
   });
 
   test('do not leak into the Gen 9 formats', async () => {
     const moves = await getMovesBySpecie('Incineroar', false, 'gen9vgc2024regg');
     expect(moves.map((m) => m.name)).toContain('Fake Out');
+    expect(moves.map((m) => m.name)).toContain('Knock Off');
   });
 });
 

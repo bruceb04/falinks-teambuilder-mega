@@ -1,5 +1,7 @@
 import { toID } from '@pkmn/data';
 
+import { championsLearnsetsBySpecies } from '@/utils/ChampionsLearnsets';
+
 /**
  * Data for the Pokémon Champions rulesets.
  *
@@ -969,3 +971,18 @@ export const isChampionsLegalMoveId = (id: string): boolean => championsMoveIds.
  */
 export const isChampionsMegaForme = (species: { forme?: string; baseSpecies?: string }): boolean =>
   (species.forme ?? '').startsWith('Mega') && isChampionsLegalSpeciesId(species.baseSpecies ?? '');
+
+const championsLearnsets = new Map<string, string[]>(Object.entries(championsLearnsetsBySpecies).map(([name, moves]) => [toID(name), moves.split(',')]));
+
+/**
+ * The moves a Pokémon may use in Champions.
+ *
+ * Champions does not share Gen 9's learnsets: it hands every Pokémon a single flat move pool that
+ * both gives back moves Gen 9 had taken away (Charizard's Ancient Power, Gholdengo's Surf) and drops
+ * moves Gen 9 still had (Incineroar's Knock Off, Grimmsnarl's Thunder Wave). The pool is complete on
+ * its own - unlike a Showdown learnset it needs no egg moves or pre-evolution moves added to it.
+ *
+ * A Mega forme uses the move pool of the Pokémon that Mega Evolves into it.
+ */
+export const getChampionsLearnset = (species: { id: string; baseSpecies?: string }): string[] | undefined =>
+  championsLearnsets.get(toID(species.id)) ?? championsLearnsets.get(toID(species.baseSpecies ?? ''));
