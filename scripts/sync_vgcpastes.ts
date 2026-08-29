@@ -76,6 +76,24 @@ async function saveCredentials(): Promise<void> {
   });
 }
 
+// Maximum number of concurrent outbound requests to pokepast.es
+const FETCH_CONCURRENCY = 8;
+
+/**
+ * Maps over `items` with `fn`, running at most `limit` calls concurrently.
+ * @param items - The items to map over
+ * @param limit - The maximum number of concurrent calls
+ * @param fn - The async mapper
+ */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = await Promise.all(items.slice(i, i + limit).map(fn));
+    results.push(...batch);
+  }
+  return results;
+}
+
 /**
  * Extracts the data from a Google Sheet using the Google Sheets API.
  * @param format - The format name
@@ -133,60 +151,64 @@ async function extractFromGoogleSheet(format: keyof typeof format2gid): Promise<
     obj['Internal Team ID'] = obj['Internal Team ID'].slice(1);
   });
 
-  // Create a data array
-  const data = await Promise.all(
-    objs.map(async (obj) => {
-      // title and author
-      const title = obj['Team Title Presentable'].trim();
-      const author = (obj['Full Name'].length > 2 ? obj['Full Name'] : obj['Team Title Presentable'].split("'s ")[0] ?? 'Unknown').trim();
-      // add Date with an additional "Team ID" as milliseconds
-      const parsedDate = Date.parse(obj['Date Shared']);
-      if (Number.isNaN(parsedDate)) {
-        throw new Error(`Invalid date ${obj['Date Shared']}, obj: ${JSON.stringify(obj)}`);
-      }
-      const createdAt = new Date(parsedDate);
-      createdAt.setMilliseconds(+obj['Internal Team ID']); // add Internal Team ID as milliseconds onto the timestamp
-      // add Rental Code
-      const rentalCode = obj['Rental Code (Manual Entry)'].length === 6 ? obj['Rental Code (Manual Entry)'] : null;
-      // build notes
-      const notes = `${[obj['Secondary Link'], obj['Notes 1'], obj['Notes 2'], obj['Notes 3']].filter((n) => n.length > 2).join(' ; ')} Exported by @${
-        obj['Done By'].length > 2 ? obj['Done By'] : 'VGCPastes'
-      }`.trim();
-      // find source
-      const source = (obj['Input Tweet'] || '').startsWith('http')
-        ? obj['Input Tweet']
-        : obj['Secondary Link'].startsWith('http')
-          ? obj['Secondary Link']
-          : obj['Other Links'].startsWith('http')
-            ? obj['Other Links']
-            : null;
-      // fetch the paste
-      const paste = await fetch(`${obj.Pokepaste}/json`)
-        .then((r) => r.json())
-        .then((j) => j.paste as string)
-        .catch(() => '{}');
-      // parse the paste
-      const jsonPaste = JSON.parse(Team.import(paste)?.toJSON() || '{}') as Prisma.JsonArray;
+  // Create a data array, bounding the concurrent fetches to pokepast.es
+  const data = await mapWithConcurrency(objs, FETCH_CONCURRENCY, async (obj) => {
+    // title and author
+    const title = obj['Team Title Presentable'].trim();
+    const author = (obj['Full Name'].length > 2 ? obj['Full Name'] : obj['Team Title Presentable'].split("'s ")[0] ?? 'Unknown').trim();
+    // the date the team was shared
+    const parsedDate = Date.parse(obj['Date Shared']);
+    if (Number.isNaN(parsedDate)) {
+      throw new Error(`Invalid date ${obj['Date Shared']}, obj: ${JSON.stringify(obj)}`);
+    }
+    const createdAt = new Date(parsedDate);
+    // the sheet's "Internal Team ID" is the row's identity; it is stored in its own column, not packed into the timestamp
+    const sourceId = obj['Internal Team ID'];
+    // add Rental Code
+    const rentalCode = obj['Rental Code (Manual Entry)'].length === 6 ? obj['Rental Code (Manual Entry)'] : null;
+    // build notes
+    const notes = `${[obj['Secondary Link'], obj['Notes 1'], obj['Notes 2'], obj['Notes 3']].filter((n) => n.length > 2).join(' ; ')} Exported by @${
+      obj['Done By'].length > 2 ? obj['Done By'] : 'VGCPastes'
+    }`.trim();
+    // find source
+    const source = (obj['Input Tweet'] || '').startsWith('http')
+      ? obj['Input Tweet']
+      : obj['Secondary Link'].startsWith('http')
+        ? obj['Secondary Link']
+        : obj['Other Links'].startsWith('http')
+          ? obj['Other Links']
+          : null;
+    // fetch the paste; an unexpected response shape is treated the same as a failed fetch
+    const paste = await fetch(`${obj.Pokepaste}/json`)
+      .then((r) => r.json())
+      .then((j) => (typeof j?.paste === 'string' ? j.paste : null))
+      .catch(() => null);
+    if (paste === null || paste.length <= 2) {
+      console.warn(`Skipping ${obj.Pokepaste} (team ${sourceId}): no usable paste content`);
+      return null;
+    }
+    // parse the paste
+    const jsonPaste = JSON.parse(Team.import(paste)?.toJSON() || '{}') as Prisma.JsonArray;
 
-      return {
-        id: cuid(),
-        author,
-        title,
-        paste,
-        notes,
-        source,
-        format,
-        isPublic: true,
-        isOfficial: true,
-        createdAt,
-        rentalCode,
-        jsonPaste,
-      };
-    }),
-  );
+    return {
+      id: cuid(),
+      author,
+      title,
+      paste,
+      notes,
+      source,
+      format,
+      isPublic: true,
+      isOfficial: true,
+      createdAt,
+      rentalCode,
+      jsonPaste,
+      sourceId,
+    };
+  });
 
-  // remove data without a valid paste
-  return data.filter((d) => d.paste.length > 2);
+  // remove the rows that were skipped above
+  return data.filter((d): d is NonNullable<typeof d> => d !== null);
 }
 
 /**
@@ -204,8 +226,33 @@ async function updatePGDatabase(data: Pokepaste[], format: keyof typeof format2g
     },
   });
 
-  // Filter out old data from the new data by CreatedAt's milliseconds
-  const newData = data.filter((d) => !oldData.some((o) => o.createdAt.getMilliseconds() === d.createdAt.getMilliseconds()));
+  // Rows ingested before `sourceId` existed carry no upstream identity, so they are matched by their paste content
+  // once and backfilled. After the first run every official row has a `sourceId` and this map is empty.
+  const legacyRowIdByPaste = new Map<string, string>();
+  oldData.forEach((o) => {
+    if (!o.sourceId) {
+      legacyRowIdByPaste.set(o.paste, o.id);
+    }
+  });
+  const knownSourceIds = new Set(oldData.map((o) => o.sourceId).filter((id): id is string => id != null));
+
+  // Filter out old data from the new data by the upstream source ID
+  const newData: Pokepaste[] = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const d of data) {
+    const isAlreadyIngested = d.sourceId != null && knownSourceIds.has(d.sourceId);
+    const legacyRowId = isAlreadyIngested ? undefined : legacyRowIdByPaste.get(d.paste);
+    if (legacyRowId) {
+      await prisma.pokepaste.update({
+        where: { id: legacyRowId },
+        data: { sourceId: d.sourceId },
+      });
+      legacyRowIdByPaste.delete(d.paste);
+      console.log(`Backfilled sourceId ${d.sourceId} onto existing paste ${legacyRowId} (${d.title})`);
+    } else if (!isAlreadyIngested) {
+      newData.push(d);
+    }
+  }
   if (!newData.length) {
     console.log(`No new data for ${format}`);
     return false;
@@ -215,15 +262,17 @@ async function updatePGDatabase(data: Pokepaste[], format: keyof typeof format2g
   console.log(`Updating ${newData.length} pastes for ${format}. Titles: \n  ${newData.map((d) => d.title).join('\n  ')}`);
   const result = await prisma.pokepaste.createMany({
     data: newData as Prisma.PokepasteCreateManyInput[],
+    // two sheet rows sharing an "Internal Team ID" would otherwise abort the whole insert on the unique constraint
+    skipDuplicates: true,
   });
   console.log(`Created ${result.count} pastes for ${format}`);
   return true;
 }
 
 async function removeDuplicates(format: keyof typeof format2gid) {
-  // Find duplicates by title
+  // Find duplicates by title AND paste content: two teams that merely share a title are not duplicates
   const duplicates = await prisma.pokepaste.groupBy({
-    by: ['title'],
+    by: ['title', 'paste'],
     where: {
       format,
       isOfficial: true,
@@ -240,9 +289,8 @@ async function removeDuplicates(format: keyof typeof format2gid) {
     },
   });
   // Only keep the most recent duplicate and delete the rest via their IDs
-  const duplicateTitles = duplicates.map((d) => d.title);
   // eslint-disable-next-line no-restricted-syntax
-  for (const title of duplicateTitles) {
+  for (const { title, paste } of duplicates) {
     const duplicateIDs = await prisma.pokepaste.findMany({
       select: {
         id: true,
@@ -251,6 +299,7 @@ async function removeDuplicates(format: keyof typeof format2gid) {
         format,
         isOfficial: true,
         title,
+        paste,
       },
       orderBy: {
         createdAt: 'desc',

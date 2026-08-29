@@ -22,7 +22,10 @@ model Pokepaste {
   isOfficial Boolean  @default(true)
   isPublic   Boolean  @default(false)
   jsonPaste  Json?
+  // Identity of the row in its upstream source (the VGCPastes sheet's "Internal Team ID"); null for user-submitted pastes
+  sourceId   String?
 
+  @@unique([format, sourceId])
   @@index([format, createdAt(sort: Desc)])
 }
 

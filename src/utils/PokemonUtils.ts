@@ -328,13 +328,14 @@ export const getRandomTrainerName = () => getRandomElement(trainerNames) || 'Tra
  */
 export const getLatestUsageByFormat: (format?: string) => Promise<UsageStatistics | null> = async (format: string = FormatManager.defaultFormatId) => {
   const { url, latestDate, process } = Statistics;
-  const latest = await latestDate(format, true);
   const year = new Date().getFullYear();
   const month = new Date().getMonth(); // 0-11
-  const date = latest?.date ?? (month !== 0 ? `${year}-${`${month}`.padStart(2, '0')}` : `${year - 1}-12`);
   // add "bo3" suffix for regf, regg and following formats
   const bo3Formats = new Set(['gen9vgc2024regf', 'gen9vgc2024regg']);
   try {
+    // `latestDate` performs a network request, so it must stay inside the try block to honor the `null` contract
+    const latest = await latestDate(format, true);
+    const date = latest?.date ?? (month !== 0 ? `${year}-${`${month}`.padStart(2, '0')}` : `${year - 1}-12`);
     const reqFormat = bo3Formats.has(format) ? `${format}bo3` : format;
     return process(await fetch(url(date, reqFormat)).then((r) => r.text()));
   } catch (e) {
@@ -721,6 +722,20 @@ export const getPokemonTranslationKey = (word: string, category: 'species' | 'mo
 };
 
 /**
+ * Normalize a map of raw counts into fractions of its own total, in place.
+ * A zero total (no set carried this attribute) is left untouched rather than dividing by zero.
+ * @param counts A map of attribute name to raw count.
+ */
+const normalizeCounts = (counts: Partial<Record<string, number>> | undefined): void => {
+  if (!counts) return;
+  const total = Object.values(counts).reduce<number>((a, b) => a + (b ?? 0), 0);
+  if (total === 0) return;
+  Object.keys(counts).forEach((key) => {
+    counts[key] = (counts[key] ?? 0) / total;
+  });
+};
+
+/**
  * Calculate the Smogon style usage of each Pokémon and their attributes from a list of pastes.
  * @param pastes A list of PokePastes to calculate the usage from.
  * @param teamBased When calculating the usage of a Pokémon, the dominator is the total number of Pokémon when false, and the total number of teams when true.
@@ -731,9 +746,9 @@ export const calcUsageFromPastes = (pastes: string[], teamBased: boolean = true)
   let totalCount = 0;
   pastes.forEach((paste) => {
     Team.import(paste)?.team.forEach((set, _, team) => {
-      totalCount += 1;
       const { species, ability, item, moves, nature, evs, teraType } = set;
       if (species && ability && item && moves) {
+        totalCount += 1;
         const usage: Usage = species2usage.get(species) ?? {
           Abilities: {},
           Items: {},
@@ -788,35 +803,12 @@ export const calcUsageFromPastes = (pastes: string[], teamBased: boolean = true)
   // Convert all the counts to percentages
   species2usage.forEach((usage) => {
     usage.usage = usage['Raw count'] / (teamBased ? pastes.length : totalCount);
-    const abilityCount = Object.values(usage.Abilities).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) ?? 1;
-    Object.keys(usage.Abilities).forEach((key) => {
-      usage.Abilities[key]! /= abilityCount;
-    });
-
-    const itemCount = Object.values(usage.Items).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) ?? 1;
-    Object.keys(usage.Items).forEach((key) => {
-      usage.Items[key]! /= itemCount;
-    });
-
-    const moveCount = Object.values(usage.Moves).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) ?? 1;
-    Object.keys(usage.Moves).forEach((key) => {
-      usage.Moves[key]! /= moveCount;
-    });
-
-    const spreadCount = Object.values(usage.Spreads).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) ?? 1;
-    Object.keys(usage.Spreads).forEach((key) => {
-      usage.Spreads[key]! /= spreadCount;
-    });
-
-    const teammateCount = Object.values(usage.Teammates).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) ?? 1;
-    Object.keys(usage.Teammates).forEach((key) => {
-      usage.Teammates[key]! /= teammateCount;
-    });
-
-    const teraTypeCount = Object.values(usage.TeraTypes!).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) ?? 1;
-    Object.keys(usage.TeraTypes!).forEach((key) => {
-      usage.TeraTypes![key]! /= teraTypeCount;
-    });
+    normalizeCounts(usage.Abilities);
+    normalizeCounts(usage.Items);
+    normalizeCounts(usage.Moves);
+    normalizeCounts(usage.Spreads);
+    normalizeCounts(usage.Teammates);
+    normalizeCounts(usage.TeraTypes);
   });
 
   // Sort the attributes of each usage object
