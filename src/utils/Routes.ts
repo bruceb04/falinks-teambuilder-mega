@@ -16,7 +16,12 @@ type Route = RouteWithChildren | RouteWithoutChildren;
 
 export const isRouteWithChildren = (route: Route): route is RouteWithChildren => 'children' in route;
 
-export const routes: Route[] = [
+// The paste browser/creator is backed by the Prisma database behind /api/pastes/*,
+// and the usage pages read /api/usages/*. A static export (GitHub Pages) serves
+// neither, so those sections are dropped from the export and from this nav.
+const isStaticExport = process.env.NEXT_PUBLIC_STATIC_EXPORT === 'true';
+
+const allRoutes: Route[] = [
   {
     id: 'home',
     name: 'Home',
@@ -132,3 +137,5 @@ export const routes: Route[] = [
     ],
   },
 ];
+
+export const routes: Route[] = isStaticExport ? allRoutes.filter((route) => route.id !== 'paste' && route.id !== 'usage') : allRoutes;

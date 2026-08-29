@@ -1,0 +1,113 @@
+import { describe, expect, test } from 'vitest';
+
+import DexSingleton from '@/models/DexSingleton';
+import FormatManager from '@/models/FormatManager';
+import {
+  allowsIvCustomization,
+  championsItems,
+  championsMegaStones,
+  championsRegulationMBSpecies,
+  isChampionsFormatId,
+  isChampionsMegaForme,
+} from '@/utils/ChampionsData';
+import { getMovesBySpecie } from '@/utils/PokemonUtils';
+
+const championsFormat = new FormatManager().getAllFormats().find((f) => f.isChampions)!;
+
+describe('Champions format', () => {
+  test('is registered in the FormatManager', () => {
+    expect(championsFormat).toBeDefined();
+    expect(championsFormat.id).toBe('championsvgc2026regmb');
+    expect(isChampionsFormatId(championsFormat.id)).toBe(true);
+    expect(isChampionsFormatId('gen9vgc2024regg')).toBe(false);
+  });
+
+  test('has no customizable IVs', () => {
+    expect(allowsIvCustomization(championsFormat.id)).toBe(false);
+    expect(allowsIvCustomization('gen9vgc2024regg')).toBe(true);
+  });
+});
+
+describe('Champions dex', () => {
+  const gen = DexSingleton.getGenByFormat(championsFormat.id);
+
+  test('resolves every Pokémon of the Regulation M-B roster', () => {
+    const unresolved = championsRegulationMBSpecies.filter((name) => !gen.species.get(name));
+    expect(unresolved).toEqual([]);
+    expect(championsRegulationMBSpecies.length).toBeGreaterThan(200);
+  });
+
+  test('only contains the Regulation M-B roster', () => {
+    const rosterIds = new Set(championsRegulationMBSpecies.map((name) => DexSingleton.getGen().dex.species.get(name)?.id ?? name.toLowerCase()));
+    const extra = Array.from(gen.species).filter((s) => !rosterIds.has(s.id) && !isChampionsMegaForme(s));
+    expect(extra).toEqual([]);
+    // Pokémon that Champions does not have, including Mega formes, are not selectable
+    expect(gen.species.get('Terapagos')).toBeUndefined();
+    expect(gen.species.get('Flutter Mane')).toBeUndefined();
+    expect(gen.species.get('Terapagos-Terastal')).toBeUndefined();
+  });
+
+  test('keeps Pokémon that Gen 9 dropped', () => {
+    expect(gen.species.get('Beedrill')?.name).toBe('Beedrill');
+    expect(gen.species.get('Starmie')?.name).toBe('Starmie');
+    expect(DexSingleton.getGen(9).species.get('Beedrill')).toBeUndefined();
+  });
+
+  test('only offers items that exist in Champions', () => {
+    const legalItemNames = new Set(championsItems);
+    const extra = Array.from(gen.items).filter((i) => !legalItemNames.has(i.name));
+    expect(extra).toEqual([]);
+    expect(gen.items.get('Venusaurite')?.name).toBe('Venusaurite'); // Mega Stone kept from the Gen 6 data
+    expect(gen.items.get('Sitrus Berry')?.name).toBe('Sitrus Berry');
+    expect(gen.items.get('Assault Vest')).toBeUndefined(); // not in Champions
+    expect(gen.items.get('Booster Energy')).toBeUndefined();
+  });
+
+  test('offers every Mega Stone, including the ones Champions introduced', () => {
+    const unresolved = championsMegaStones.filter((name) => !gen.items.get(name));
+    expect(unresolved).toEqual([]);
+    expect(championsMegaStones).toHaveLength(75);
+    expect(gen.items.get('Meganiumite')?.megaStone).toEqual({ Meganium: 'Meganium-Mega' });
+    expect(gen.items.get('Raichunite X')?.megaStone).toEqual({ Raichu: 'Raichu-Mega-X' });
+  });
+
+  test('resolves the Mega formes without offering them as a pick', () => {
+    const mega = gen.species.get('Meganium-Mega');
+    expect(mega?.baseStats.spa).toBe(143);
+    expect(mega?.requiredItems).toContain('Meganiumite');
+    expect(isChampionsMegaForme(mega!)).toBe(true);
+    expect(isChampionsMegaForme(gen.species.get('Meganium')!)).toBe(false);
+    // a Mega forme of a Pokémon outside the roster is not in the Champions dex at all
+    expect(gen.species.get('Baxcalibur-Mega')).toBeUndefined();
+  });
+
+  test('excludes moves that Champions does not have', () => {
+    expect(gen.moves.get('Hidden Power')).toBeUndefined();
+    expect(gen.moves.get('Fake Out')?.name).toBe('Fake Out');
+  });
+});
+
+describe('Champions learnsets', () => {
+  test('include moves of Pokémon that have no Gen 9 learnset', async () => {
+    const moves = await getMovesBySpecie('Beedrill', false, championsFormat.id);
+    const moveNames = moves.map((m) => m.name);
+    expect(moveNames).toContain('Protect');
+    expect(moveNames).toContain('U-turn');
+    // moves that do not exist in Champions are filtered out even when the learnset has them
+    expect(moveNames).not.toContain('Pursuit');
+    expect(moveNames).not.toContain('Hidden Power');
+  });
+
+  test('do not leak into the Gen 9 formats', async () => {
+    const moves = await getMovesBySpecie('Incineroar', false, 'gen9vgc2024regg');
+    expect(moves.map((m) => m.name)).toContain('Fake Out');
+  });
+});
+
+describe('A Champions set', () => {
+  test('can pick every move of a Regulation M-B set', async () => {
+    const moves = await getMovesBySpecie('Floette-Eternal', false, championsFormat.id);
+    const moveNames = moves.map((m) => m.name);
+    ['Light of Ruin', 'Moonblast', 'Dazzling Gleam', 'Protect'].forEach((move) => expect(moveNames).toContain(move));
+  });
+});

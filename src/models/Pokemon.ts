@@ -79,10 +79,13 @@ export class Pokemon implements PokemonSet {
     this.shiny = shiny;
   }
 
-  static getTeamMemberCategories(team: Pokemon[]): {
+  static getTeamMemberCategories(
+    team: Pokemon[],
+    format: string = FormatManager.defaultFormatId,
+  ): {
     [key in MoveCategory]: Specie[];
   } {
-    const data = DexSingleton.getGen();
+    const data = DexSingleton.getGenByFormat(format);
     const res: {
       [key in MoveCategory]: Specie[];
     } = { Physical: [], Special: [], Status: [] };
@@ -90,8 +93,8 @@ export class Pokemon implements PokemonSet {
       const species = data.species.get(p.species);
       if (!species) return;
       const nature = data.natures.get(p.nature);
-      const atkStat = getStats('atk', species.baseStats.atk ?? 0, p.evs.atk, p.ivs.atk, nature, p.level);
-      const spaStat = getStats('spa', species.baseStats.spa ?? 0, p.evs.spa, p.ivs.spa, nature, p.level);
+      const atkStat = getStats('atk', species.baseStats.atk ?? 0, p.evs.atk, p.ivs.atk, nature, p.level, format);
+      const spaStat = getStats('spa', species.baseStats.spa ?? 0, p.evs.spa, p.ivs.spa, nature, p.level, format);
       if (atkStat >= spaStat) {
         res.Physical.push(species);
       }
@@ -108,13 +111,14 @@ export class Pokemon implements PokemonSet {
 
   static getTeamTypeChart = (
     team: Pokemon[],
+    format: string = FormatManager.defaultFormatId,
   ): {
     offenseMap: Type2EffectivenessMap<TypeEffectiveness>;
     defenseMap: Type2EffectivenessMap;
     defenseTeraMap: Type2EffectivenessMap;
   } => {
     // Dex data
-    const data = DexSingleton.getGen();
+    const data = DexSingleton.getGenByFormat(format);
 
     // Get all 18 types
     const allTypes = Array.from(data.types);

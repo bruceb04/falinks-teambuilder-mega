@@ -3,6 +3,7 @@
   "emptySlotDesc": "Only a substitute.",
   "invalidPaste": "Invalid Paste",
   "invalidPasteFromPokePaste": "Invalid team paste fetched from PokePaste",
+  "ivsNotCustomizable": "This format has no IVs; every Pokémon has 31 in every stat.",
   "jumpToTab": "Jump to Tab",
   "noPokemonInTeam": "No Pokémon in team",
   "suggestion": {

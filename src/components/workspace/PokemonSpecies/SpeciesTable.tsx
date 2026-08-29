@@ -31,8 +31,13 @@ import { StoreContext } from '@/components/workspace/Contexts/StoreContext';
 import { PresetsSubComponent } from '@/components/workspace/PokemonSpecies/PresetsSubComponent';
 import DexSingleton from '@/models/DexSingleton';
 import { Pokemon } from '@/models/Pokemon';
+import { isChampionsFormatId, isChampionsMegaForme } from '@/utils/ChampionsData';
 import { getPokemonTranslationKey } from '@/utils/PokemonUtils';
 import type { Usage } from '@/utils/Types';
+
+// A stable fallback: a new array on every render would give `speciesList` a new identity every
+// render, which sends the table into an endless re-render loop while no usage data is available.
+const noUsages: Usage[] = [];
 
 function SpeciesTable() {
   const { t } = useTranslation(['common', 'species', 'formes', 'types', 'abilities']);
@@ -46,20 +51,23 @@ function SpeciesTable() {
     isLoading,
   } = useSWR<Usage[]>(
     // Hack: use `gen9vgc2024regf` instead of `gen9vgc2024regg` as there is no usage data for `gen9vgc2024regg`
-    `/api/usages/format/${teamState.format === 'gen9vgc2024regg' ? 'gen9vgc2024regf' : teamState.format}`,
+    // Champions formats have no usage data at all, so the request is skipped and the dex order is kept
+    isChampionsFormatId(teamState.format) ? null : `/api/usages/format/${teamState.format === 'gen9vgc2024regg' ? 'gen9vgc2024regf' : teamState.format}`,
     (u) => fetch(u).then((r) => r.json()),
     {
-      fallbackData: [],
+      fallbackData: noUsages,
     },
   );
   const speciesList = useMemo<Specie[]>(() => {
     const speciesDex = DexSingleton.getGenByFormat(teamState.format).species;
+    // Mega formes are part of the Champions dex, but a Pokémon Mega Evolves by holding a Mega Stone
+    const pickable = Array.from(speciesDex).filter((s) => !isChampionsMegaForme(s));
     if (!usages) {
-      return [...Array.from(speciesDex)];
+      return pickable;
     }
     // sort by usage
     const dataSorted = usages.flatMap((u) => speciesDex.get(u.name) || []);
-    dataSorted.push(...Array.from(speciesDex).filter((s) => !dataSorted.includes(s)));
+    dataSorted.push(...pickable.filter((s) => !dataSorted.includes(s)));
     return dataSorted;
   }, [usages, teamState.format]);
   if (error) {

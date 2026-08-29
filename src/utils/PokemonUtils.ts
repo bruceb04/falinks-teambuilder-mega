@@ -1,14 +1,14 @@
 import type { Move, MoveCategory, Nature, Specie, TypeEffectiveness, TypeName } from '@pkmn/data';
 import { Team } from '@pkmn/sets';
-import { DisplayUsageStatistics, LegacyDisplayUsageStatistics } from '@pkmn/smogon';
 import type { StatID, StatsTable, StatusName } from '@pkmn/types';
 import { MovesetStatistics, Statistics, UsageStatistics } from 'smogon';
 
 import DexSingleton from '@/models/DexSingleton';
 import FormatManager from '@/models/FormatManager';
 import { AppConfig } from '@/utils/AppConfig';
+import { championsMaxSingleStatPoints, championsMaxTotalStatPoints, isChampionsFormatId } from '@/utils/ChampionsData';
 import { convertObjectNumberValuesToFraction, filterSortLimitObjectByValues, getRandomElement, urlPattern } from '@/utils/Helpers';
-import type { PairUsage, Spreads, Usage, ValueWithEmojiOption } from '@/utils/Types';
+import type { PairUsage, Usage, ValueWithEmojiOption } from '@/utils/Types';
 
 export const stats: StatID[] = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
 
@@ -118,76 +118,18 @@ const hyphenNameToWikiName = new Map<string, string>([
   ['will-o-wisp', 'Will-O-Wisp'],
 ]);
 
-export const defaultSuggestedSpreads: Spreads[] = [
-  {
-    label: 'fps',
-    nature: 'Jolly',
-    evs: {
-      hp: 4,
-      atk: 252,
-      def: 0,
-      spa: 0,
-      spd: 0,
-      spe: 252,
-    },
-  },
-  {
-    label: 'fss',
-    nature: 'Timid',
-    evs: {
-      hp: 4,
-      atk: 0,
-      def: 0,
-      spa: 252,
-      spd: 0,
-      spe: 252,
-    },
-  },
-  {
-    label: 'bps',
-    nature: 'Adamant',
-    evs: {
-      hp: 252,
-      atk: 252,
-      def: 0,
-      spa: 0,
-      spd: 4,
-      spe: 0,
-    },
-  },
-  {
-    label: 'bss',
-    nature: 'Modest',
-    evs: {
-      hp: 252,
-      atk: 0,
-      def: 0,
-      spa: 252,
-      spd: 4,
-      spe: 0,
-    },
-  },
-  {
-    label: 'sd',
-    nature: 'Calm',
-    evs: {
-      hp: 252,
-      atk: 0,
-      def: 4,
-      spa: 0,
-      spd: 252,
-      spe: 0,
-    },
-  },
-];
-
 /**
- * Returns the remaining EVs that can be distributed to the given EVs.
- * @param evs: The EVs of the Pokémon.
- * @returns The remaining EV points.
+ * The stat budget of a format. Champions spends Stat Points (66 in total, 32 per stat, one point per
+ * click) where the other formats spend EVs (508 in total, 252 per stat, in steps of 4). Both are
+ * stored in, and exported to, the EVs field of a set.
  */
-export const getLeftEVs = (evs: StatsTable): number => {
-  return maxTotalEvs - Object.values(evs).reduce((total, ev) => total + ev, 0);
+export const getEvLimits = (format: string = FormatManager.defaultFormatId): { total: number; single: number; step: number } =>
+  isChampionsFormatId(format)
+    ? { total: championsMaxTotalStatPoints, single: championsMaxSingleStatPoints, step: 1 }
+    : { total: maxTotalEvs, single: maxSingleEvs, step: 4 };
+
+export const getLeftEVs = (evs: StatsTable, format: string = FormatManager.defaultFormatId): number => {
+  return getEvLimits(format).total - Object.values(evs).reduce((total, ev) => total + ev, 0);
 };
 
 /**
@@ -199,20 +141,40 @@ export const getLeftEVs = (evs: StatsTable): number => {
  * @param nature - The nature of the Pokémon. E.g. 'Adamant', 'Brave'.
  * @param level - The level of the Pokémon. Must be between 1 and 100. Defaults to 50.
  */
-export const getStats = (stat: string, base: number, ev: number, iv: number, nature: Nature | undefined, level: number = 50): number => {
+export const getStats = (
+  stat: string,
+  base: number,
+  ev: number,
+  iv: number,
+  nature: Nature | undefined,
+  level: number = 50,
+  format: string = FormatManager.defaultFormatId,
+): number => {
+  const natureModifier = nature?.plus === stat ? 1.1 : nature?.minus === stat ? 0.9 : 1;
+  // In Champions the EVs field holds Stat Points, and a point is worth exactly +1 to the final stat,
+  // i.e. it is added after the nature modifier rather than feeding the base calculation.
+  if (isChampionsFormatId(format)) {
+    const withoutStatPoints =
+      stat === 'hp'
+        ? Math.floor((Math.floor(2 * base + iv + 100) * level) / 100 + 10)
+        : Math.floor(((Math.floor(2 * base + iv) * level) / 100 + 5) * natureModifier);
+    return withoutStatPoints + ev;
+  }
   return stat === 'hp'
     ? Math.floor((Math.floor(2 * base + iv + Math.floor(ev / 4) + 100) * level) / 100 + 10)
-    : Math.floor(((Math.floor(2 * base + iv + Math.floor(ev / 4)) * level) / 100 + 5) * (nature?.plus === stat ? 1.1 : nature?.minus === stat ? 0.9 : 1));
+    : Math.floor(((Math.floor(2 * base + iv + Math.floor(ev / 4)) * level) / 100 + 5) * natureModifier);
 };
 
 /**
  * Calculates the upper bound of EVs that can be put into a stat.
  * @param evs - The current EVs of the Pokémon.
  * @param oldEv - The old EV of the stat which is being changed.
+ * @param format - The format, which decides whether the budget is EVs or Champions Stat Points.
  */
-export const getSingleEvUpperLimit = (evs: StatsTable, oldEv: number): number => {
-  // 252 or left over EVs
-  return Math.min(maxTotalEvs - Object.values(evs).reduce((x, y) => x + y, 0) + oldEv, maxSingleEvs);
+export const getSingleEvUpperLimit = (evs: StatsTable, oldEv: number, format: string = FormatManager.defaultFormatId): number => {
+  const { total, single } = getEvLimits(format);
+  // the per-stat cap, or what is left of the budget
+  return Math.min(total - Object.values(evs).reduce((x, y) => x + y, 0) + oldEv, single);
 };
 
 export const trainerNames = [
@@ -464,12 +426,21 @@ export const getMovesBySpecie = (speciesName?: string, isBaseSpecies: boolean = 
   if (!species) {
     return Promise.resolve(isBaseSpecies ? [] : Array.from(gen.moves));
   }
+  const isChampions = isChampionsFormatId(format);
 
   // read learnset by species
   return gen.learnsets.get(speciesName || '').then(async (l) => {
-    const res = Object.entries(l?.learnset ?? [])
-      .filter((e) => e[1].some((s) => s.startsWith(`${gen.num}`)))
-      .flatMap((e) => gen.moves.get(e[0]) ?? []);
+    const entries = Object.entries(l?.learnset ?? []);
+    const hasCurrentSources = entries.some((e) => e[1].some((source) => source.startsWith(`${gen.num}`)));
+    // Champions Pokémon that Gen 9 also has keep their current Showdown learnset; the ones Gen 9
+    // dropped (e.g. Beedrill) have no current learnset at all, so they fall back to the moves they
+    // learned in any generation. Either way the Champions dex only carries the moves Champions has,
+    // so a move the game does not ship never survives the `gen.moves.get` lookup below.
+    const useAnySource = isChampions && !hasCurrentSources;
+    const isLearnableSource = (source: string) => useAnySource || source.startsWith(`${gen.num}`);
+    const isEggMoveSource = (source: string) => (useAnySource ? /^\d+E/.test(source) : source.startsWith(`${gen.num}E`));
+
+    const res = entries.filter((e) => e[1].some(isLearnableSource)).flatMap((e) => gen.moves.get(e[0]) ?? []);
 
     // if the species is a forme, add the base species' moves
     const baseSpecies = gen.species.get(speciesName || '')?.baseSpecies ?? '';
@@ -488,7 +459,7 @@ export const getMovesBySpecie = (speciesName?: string, isBaseSpecies: boolean = 
         basicSpecies != null
           ? await gen.learnsets.get(basicSpecies.name).then((le) =>
               Object.entries(le?.learnset ?? [])
-                .filter((e) => e[1].some((s) => s.startsWith(`${gen.num}E`)))
+                .filter((e) => e[1].some(isEggMoveSource))
                 .flatMap((e) => gen.moves.get(e[0]) ?? []),
             )
           : [];
@@ -497,35 +468,6 @@ export const getMovesBySpecie = (speciesName?: string, isBaseSpecies: boolean = 
     return res;
   });
 };
-
-/**
- * Processes the fetched usage statistics into a some options for the user to choose from.
- * @param d - The fetched usage statistics.
- */
-export const getSuggestedSpreadsBySpecie = (d: DisplayUsageStatistics & LegacyDisplayUsageStatistics): Spreads[] =>
-  Object.keys(
-    filterSortLimitObjectByValues(
-      d.stats ?? d.spreads ?? {}, // its either in the stats (DisplayUsageStatistics) or spreads (LegacyDisplayUsageStatistics) field
-      (v) => v > 0.001, // only show spreads with a usage of 0.1% or higher
-      (a, b) => b - a, // sort by usage descending
-      5, // only show the top 5 spreads
-    ),
-  ).map(
-    (s) =>
-      ({
-        label: s, // the label is the spread itself
-        nature: s.split(':')[0], // the nature is the first part of the spread
-        evs: Object.fromEntries(
-          // parse the string like "Adamant:252/0/0/0/4/252" into an StatsTable like {hp: 0, atk: 252, def: 0, spa: 0, spd: 4, spe: 252}
-          s
-            .split(':')[1]!
-            .split('/')
-            .map((e: string, i: number) =>
-              i === 0 ? ['hp', +e] : i === 1 ? ['atk', +e] : i === 2 ? ['def', +e] : i === 3 ? ['spa', +e] : i === 4 ? ['spd', +e] : ['spe', +e],
-            ),
-        ),
-      }) as Spreads,
-  );
 
 export const isValidPokePasteURL = (url?: string): boolean => typeof url === 'string' && urlPattern.test(url) && url.includes('pokepast.es');
 

@@ -161,7 +161,7 @@ const PasteLayout = ({ id }: { id: string }) => {
         ))}
       </div>
       {currentTab === 'Team' && <PasteAndFunctions team={team} paste={paste} />}
-      {currentTab === 'Insights' && <TeamInsight team={team} />}
+      {currentTab === 'Insights' && <TeamInsight team={team} format={paste.format} />}
     </>
   );
 };

@@ -10,6 +10,9 @@ test('should navigate to a new room', async ({ page, baseURL, browser, browserNa
   const currentRoomName = `${Date.now()}${browserName}`;
   const roomNameInput = page.getByRole('textbox', { name: 'Room name' });
   await roomNameInput.fill(currentRoomName);
+  // Build the team in a Gen 9 VGC format: the default format is a Pokémon Champions one, which has
+  // its own roster (no Dondozo, no Clear Amulet) and no IVs
+  await page.getByLabel('Format').selectOption('gen9vgc2024regg');
   // Enter to submit the form
   await roomNameInput.press('Enter');
   // Wait for navigation
@@ -28,7 +31,7 @@ test('should navigate to a new room', async ({ page, baseURL, browser, browserNa
   // The second page should have the same URL as the first page
   await expect(page2).toHaveURL(page.url());
   // add a Pokémon on the first page
-  await page.getByRole('tab', { name: 'Add new tab' }).click();
+  await page.getByRole('tab', { name: 'Add a new tab' }).click();
   await page.getByPlaceholder('Pokémon').click();
   await page.getByPlaceholder('Pokémon').press('Control+a');
   await page.getByPlaceholder('Pokémon').fill('dond');
@@ -46,7 +49,14 @@ test('should navigate to a new room', async ({ page, baseURL, browser, browserNa
   await page.getByLabel('Move 4').click();
   await page.getByLabel('Move 4').fill('li');
   await page.getByRole('cell', { name: 'Liquidation' }).click();
-  await page.getByRole('listbox', { name: 'Suggested EVs Spreads' }).selectOption('bps');
+  // a bulky physical spread: 252 HP / 252 Atk / 4 SpD, Adamant
+  await page.locator('#nature').selectOption('Adamant');
+  await page.getByRole('spinbutton', { name: 'hp EV input' }).fill('252');
+  await page.getByRole('spinbutton', { name: 'hp EV input' }).press('Enter');
+  await page.getByRole('spinbutton', { name: 'atk EV input' }).fill('252');
+  await page.getByRole('spinbutton', { name: 'atk EV input' }).press('Enter');
+  await page.getByRole('spinbutton', { name: 'spd EV input' }).fill('4');
+  await page.getByRole('spinbutton', { name: 'spd EV input' }).press('Enter');
 
   // verify the outcome on the second page
   await page2.getByRole('tab', { name: 'Tab 1' }).click();
@@ -62,7 +72,7 @@ test('should navigate to a new room', async ({ page, baseURL, browser, browserNa
 test('should undo and redo', async ({ page, baseURL, browserName }) => {
   // Start from the room page
   await page.goto(baseURL ? `${baseURL}/room/${Date.now()}${browserName}` : `http://localhost:3000/room/${Date.now()}${browserName}`);
-  await page.getByRole('tab', { name: 'Add new tab' }).click();
+  await page.getByRole('tab', { name: 'Add a new tab' }).click();
   const tab1 = page.getByRole('tab', { name: 'Tab 1' });
   await expect(tab1).toBeVisible();
   await page.getByRole('button', { name: '↩️ Undo' }).click();
@@ -111,7 +121,7 @@ test('should have room history', async ({ page, baseURL, browserName }) => {
   await page.waitForNavigation({ waitUntil: 'networkidle' });
 
   // Add a Pikachu to the team
-  await page.getByRole('tab', { name: 'Add new tab' }).click();
+  await page.getByRole('tab', { name: 'Add a new tab' }).click();
   await page.getByPlaceholder('Pokémon').click();
   await page.getByPlaceholder('Pokémon').press('Control+a');
   await page.getByPlaceholder('Pokémon').fill('pika');

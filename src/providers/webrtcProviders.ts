@@ -5,6 +5,13 @@ import { WebrtcProvider } from 'y-webrtc';
 import { StoreContextType } from '@/models/TeamState';
 import { Providers } from '@/providers/baseProviders';
 
+// y-webrtc already defaults to a maintained signaling server (wss://y-webrtc-eu.fly.dev).
+// Set NEXT_PUBLIC_YJS_SIGNALING to a comma-separated list to point at your own instead.
+// Signaling only introduces peers to each other; the team data itself stays peer-to-peer.
+const signaling = process.env.NEXT_PUBLIC_YJS_SIGNALING?.split(',')
+  .map((url) => url.trim())
+  .filter(Boolean);
+
 let instance: Providers<WebrtcProvider>;
 
 class WebrtcProviders extends Providers<WebrtcProvider> {
@@ -19,7 +26,7 @@ class WebrtcProviders extends Providers<WebrtcProvider> {
 
   public getOrCreateProvider(roomName: string, store: MappedTypeDescription<StoreContextType>): WebrtcProvider {
     if (!this.providers.has(roomName)) {
-      this.providers.set(roomName, new WebrtcProvider(roomName, getYjsValue(store) as any));
+      this.providers.set(roomName, new WebrtcProvider(roomName, getYjsValue(store) as any, signaling?.length ? { signaling } : {}));
     }
 
     return this.providers.get(roomName)!;

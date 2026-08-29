@@ -1,0 +1,13 @@
+import { chromium } from '@playwright/test';
+const b = await chromium.launch();
+const p = await b.newPage();
+const race = (pr, ms) => Promise.race([pr.then(() => 'ok').catch((e) => 'err'), new Promise((r) => setTimeout(() => r('TIMEOUT'), ms))]);
+await p.goto('http://localhost:3113/room/bisect' + Date.now() + '/', { waitUntil: 'networkidle' });
+await p.getByRole('tab', { name: 'Add a new tab' }).click();
+await p.waitForTimeout(2000);
+const cdp = await p.context().newCDPSession(p);
+await p.locator('input[placeholder="Pokémon"]').focus();
+cdp.send('Input.dispatchKeyEvent', { type: 'char', text: 'f' }).catch(() => {});
+console.log('t+5s:', await race(p.evaluate(() => 1), 5000));
+console.log('t+10s:', await race(p.evaluate(() => 1), 5000));
+process.exit(0);

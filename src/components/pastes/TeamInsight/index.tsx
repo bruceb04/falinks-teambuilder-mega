@@ -5,15 +5,15 @@ import { TeamTypeCategoryMatrix } from '@/components/table/TeamTypeCategoryMatri
 import { TeamTypeChart } from '@/components/table/TeamTypeChart';
 import { Pokemon } from '@/models/Pokemon';
 
-const TeamInsight = ({ team }: { team: Pokemon[] }) => {
+const TeamInsight = ({ team, format }: { team: Pokemon[]; format?: string }) => {
   const { t } = useTranslation(['common']);
-  const { defenseMap, offenseMap, defenseTeraMap } = Pokemon.getTeamTypeChart(team);
+  const { defenseMap, offenseMap, defenseTeraMap } = Pokemon.getTeamTypeChart(team, format);
   return (
     <div className="flex flex-col gap-2 overflow-x-auto p-2">
       <h1 className="text-2xl font-bold">{t('common.insights')}</h1>
       {/* type category matrix */}
       <h2 className="text-xl font-bold">{t('common.typeCategoryMatrix')}</h2>
-      <TeamTypeCategoryMatrix teamMemberCategories={Pokemon.getTeamMemberCategories(team)} />
+      <TeamTypeCategoryMatrix teamMemberCategories={Pokemon.getTeamMemberCategories(team, format)} />
       {/* defense map */}
       <h2 className="text-xl font-bold">{t('common.defense')}</h2>
       <TeamTypeChart teamTypeChart={defenseMap} additionalTypeChart={defenseTeraMap} direction={'defense'} />

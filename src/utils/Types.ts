@@ -20,6 +20,8 @@ export type Format = {
   defaultSpeciesName: string;
   isIndexedAsUsage: boolean;
   isVGC: boolean;
+  /** Pokémon Champions formats have their own roster, item pool and mechanics (e.g. no IVs). */
+  isChampions?: boolean;
 };
 
 export type SelectProps<T extends Option | Option[]> = {

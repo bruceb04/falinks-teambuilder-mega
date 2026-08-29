@@ -7,7 +7,9 @@ import { UndoManager } from 'yjs';
 import DexSingleton from '@/models/DexSingleton';
 import FormatManager from '@/models/FormatManager';
 import { Pokemon } from '@/models/Pokemon';
+import { allowsIvCustomization, isChampionsFormatId, isChampionsLegalItemId } from '@/utils/ChampionsData';
 import { S4 } from '@/utils/Helpers';
+import { defaultIvs } from '@/utils/PokemonUtils';
 
 type Metadata = {
   title: string;
@@ -132,11 +134,11 @@ class TeamState {
   }
 
   getTeamMemberCategories() {
-    return Pokemon.getTeamMemberCategories(this.teamState.team);
+    return Pokemon.getTeamMemberCategories(this.teamState.team, this.format);
   }
 
   getTeamTypeChart() {
-    return Pokemon.getTeamTypeChart(this.teamState.team);
+    return Pokemon.getTeamTypeChart(this.teamState.team, this.format);
   }
 
   // urlEncode takes effect only when packed is true
@@ -154,6 +156,14 @@ class TeamState {
     if (tabIdx < 0 || tabIdx > this.teamState.team.length) {
       return;
     }
+    // Champions has no IVs: every Pokémon is treated as having 31 in every stat
+    if (key === 'ivs' && !allowsIvCustomization(this.format)) {
+      return;
+    }
+    // Champions has no Terastallization, so a Tera type is not part of a Champions set
+    if (key === 'teraType' && isChampionsFormatId(this.format)) {
+      return;
+    }
     // update
     const oldValue = this.teamState.team[tabIdx]![key];
     if (Array.isArray(oldValue) && Array.isArray(newValue)) {
@@ -167,9 +177,12 @@ class TeamState {
     let newValueStr = JSON.stringify(newValue);
     if (key === 'species' || key === 'item' || key === 'ability') {
       const propKey: keyof Generation = key === 'item' ? 'items' : key === 'ability' ? 'abilities' : 'species';
-      const newValueObj = DexSingleton.getGen()[propKey].get(newValueStr);
+      const newValueObj = DexSingleton.getGenByFormat(this.format)[propKey].get(newValueStr);
       if (newValueObj) {
         newValueStr = newValueObj.name;
+      } else if (key === 'item' && isChampionsLegalItemId(newValueStr)) {
+        // Mega Stones introduced by Champions have no dex entry, but they are still valid items
+        newValueStr = String(newValue);
       } else {
         return;
       }
@@ -177,10 +190,22 @@ class TeamState {
     this.addHistory(`Changed ${key} of ${this.teamState.team[tabIdx]!.species} from ${JSON.stringify(oldValue)} to ${newValueStr}`);
   };
 
+  /**
+   * Champions has neither IVs nor Terastallization, so any Pokémon entering the team (e.g. from an
+   * imported paste) has its IVs reset to the 31s that Champions gives every Pokémon and loses the
+   * Tera type it was carrying.
+   */
+  private normalizeToFormat = (pokemon: Pokemon): Pokemon => {
+    if (!isChampionsFormatId(this.format)) return pokemon;
+    pokemon.ivs = { ...defaultIvs };
+    delete pokemon.teraType;
+    return pokemon;
+  };
+
   addPokemonToTeam = (pokemon: Pokemon): number => {
     // update history
     this.addHistory(`➕ ${pokemon.species}`);
-    return this.teamState.team.push(pokemon);
+    return this.teamState.team.push(this.normalizeToFormat(pokemon));
   };
 
   splicePokemonTeam = (start: number, deleteCount: number, ...items: Pokemon[]): Pokemon[] => {
@@ -188,7 +213,7 @@ class TeamState {
       .slice(start, start + deleteCount)
       .map((p) => p.species)
       .join(', ');
-    const newTeam = this.teamState.team.splice(start, deleteCount, ...items);
+    const newTeam = this.teamState.team.splice(start, deleteCount, ...items.map(this.normalizeToFormat));
     // update history depending on whether we're replacing or deleting
     this.addHistory(items.length === 0 ? `🚮 ${oldTeamNames}` : `${oldTeamNames} ➡️${items.map((p) => p.species).join(', ')}`);
     return newTeam;

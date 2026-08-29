@@ -1,5 +1,4 @@
 import { Move } from '@pkmn/data';
-import { DisplayUsageStatistics } from '@pkmn/smogon';
 import { ColumnDef, ColumnFiltersState, FilterFnOption, getCoreRowModel, getFilteredRowModel, getSortedRowModel, useReactTable } from '@tanstack/react-table';
 import { useTranslation } from 'next-i18next';
 import { useContext, useEffect, useMemo, useState } from 'react';
@@ -14,38 +13,14 @@ import { getMovesBySpecie } from '@/utils/PokemonUtils';
 
 function MovesTable({ moveIdx }: { moveIdx: number }) {
   const { t } = useTranslation(['common', 'categories', 'moves', 'move_descriptions', 'types']);
-  const { teamState, tabIdx, focusedFieldState, focusedFieldDispatch, globalFilter, setGlobalFilter, formatManager } = useContext(StoreContext);
+  const { teamState, tabIdx, focusedFieldState, focusedFieldDispatch, globalFilter, setGlobalFilter } = useContext(StoreContext);
 
   // get all moves that learnable by the Pokémon
   const { species } = teamState.getPokemonInTeam(tabIdx) ?? {};
-  const { data: learnableMoves } = useSWR<Move[]>(species, (k: string) => getMovesBySpecie(k, false, teamState.format));
-  // fetch popular moves by this Pokémon
-  const { data: popularMoveNames } = useSWR<string[]>( // move names
-    species ? `/api/usages/stats/${species}?format=${teamState.format}&gen=${formatManager.getFormatById(teamState.format)?.gen}&moves=true` : null, // ?moves=true doesn't work in the API, only used as a cache buster for SWR.
-    {
-      fallbackData: [],
-      fetcher: (u: string) =>
-        fetch(u)
-          .then((r) => r.json())
-          .then((d: DisplayUsageStatistics) =>
-            Object.entries(d?.moves ?? {})
-              .sort((a, b) => b[1] - a[1])
-              .map(([k, _]) => k),
-          ),
-    },
-  );
-
-  // move popular moves to the top
-  const data = useMemo<Move[]>(() => {
-    if (!learnableMoves) return []; // learnableMoves first
-    if (!popularMoveNames || popularMoveNames.length === 0) return learnableMoves;
-    return popularMoveNames
-      .flatMap((name) => learnableMoves.find((m) => m.name === name) || [])
-      .concat(learnableMoves.filter(({ name }) => !popularMoveNames.includes(name)));
-  }, [learnableMoves, popularMoveNames]);
+  const { data } = useSWR<Move[]>(species, (k: string) => getMovesBySpecie(k, false, teamState.format));
 
   // use a loading component as reading learnset is async
-  const isLoading = !learnableMoves;
+  const isLoading = !data;
 
   // a filter that supports searching by translated name
   const i18nFilterFn: FilterFnOption<Move> = (row, columnId, filterValue) =>

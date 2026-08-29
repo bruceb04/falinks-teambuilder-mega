@@ -24,7 +24,7 @@ function StatsClickable() {
     // compute new stats
     const newStats: StatsTable = { ...defaultStats };
     Object.keys(newStats).forEach((stat) => {
-      newStats[stat as StatID] = getStats(stat, bases[stat as StatID], evs[stat as StatID], ivs[stat as StatID], nature, level);
+      newStats[stat as StatID] = getStats(stat, bases[stat as StatID], evs[stat as StatID], ivs[stat as StatID], nature, level, teamState.format);
     });
     setStats(newStats);
   }, [

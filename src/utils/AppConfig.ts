@@ -42,7 +42,7 @@ const dialogProps = [
 
 export const AppConfig = {
   site_name: 'Falinks Teambuilder',
-  title: 'Falinks Teambuilder',
+  title: 'Falinks Teambuilder MEGA',
   description: 'Falinks Teambuilder is a collaborative Pokémon team building application.',
   canonical: 'https://www.falinks-teambuilder.com',
   locales: ['de', 'en', 'es', 'fr', 'it', 'ja', 'ko', 'zh-Hans', 'zh-Hant'],

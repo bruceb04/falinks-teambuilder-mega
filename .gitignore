@@ -49,3 +49,6 @@ credentials.json
 
 # script output
 *_team_list.json
+
+# GitHub Pages build (scripts/build-gh-pages.mjs holds server-only pages here)
+/.gh-pages-stash

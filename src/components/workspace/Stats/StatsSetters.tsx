@@ -3,39 +3,23 @@ import type { StatsTable } from '@pkmn/types';
 import { useTranslation } from 'next-i18next';
 import type { ChangeEvent, FocusEvent, KeyboardEvent, MouseEvent, TouchEvent } from 'react';
 import { useContext, useEffect, useState } from 'react';
-import useSWR from 'swr';
 
 import { StoreContext } from '@/components/workspace/Contexts/StoreContext';
 import DexSingleton from '@/models/DexSingleton';
-import {
-  defaultIvs,
-  defaultStats,
-  defaultSuggestedSpreads,
-  getLeftEVs,
-  getSingleEvUpperLimit,
-  getStats,
-  getSuggestedSpreadsBySpecie,
-} from '@/utils/PokemonUtils';
-import type { Spreads } from '@/utils/Types';
+import { allowsIvCustomization, isChampionsFormatId } from '@/utils/ChampionsData';
+import { defaultIvs, defaultStats, getEvLimits, getLeftEVs, getSingleEvUpperLimit, getStats } from '@/utils/PokemonUtils';
 
 function StatsSetters() {
   const { t } = useTranslation(['common', 'natures', 'room']);
-  const { teamState, tabIdx, formatManager } = useContext(StoreContext);
-
-  // fetch popular spreads by Pokémon
-  const { species } = teamState.getPokemonInTeam(tabIdx) ?? {};
-  const { data: suggestedSpreads } = useSWR<Spreads[]>( // suggestedSpreads StatsTable
-    species ? `/api/usages/stats/${species}?format=${teamState.format}&gen=${formatManager.getFormatById(teamState.format)?.gen}&spreads=true` : null, // ?spreads=true doesn't work in the API, only used as a cache buster for SWR.
-    {
-      fallbackData: [], // defaultSuggestedSpreads is concatenated to returned suggestions when rendering
-      fetcher: (u: string) =>
-        fetch(u)
-          .then((r) => r.json())
-          .then(getSuggestedSpreadsBySpecie),
-    },
-  );
+  const { teamState, tabIdx } = useContext(StoreContext);
 
   const natures = Array.from(DexSingleton.getGen().natures);
+  // Champions treats every Pokémon as having 31 IVs in every stat, so they cannot be edited there
+  const canCustomizeIvs = allowsIvCustomization(teamState.format);
+  // Champions spends Stat Points instead of EVs: 66 in total, 32 per stat, one point at a time
+  const usesStatPoints = isChampionsFormatId(teamState.format);
+  const evLimits = getEvLimits(teamState.format);
+  const evLabel = usesStatPoints ? t('common.statPoints', { defaultValue: 'SP' }) : t('common.evs');
 
   // stats
   const [base, setBase] = useState<StatsTable>(defaultStats);
@@ -81,18 +65,9 @@ function StatsSetters() {
     teamState.updatePokemonInTeam(tabIdx, 'nature', newChecked.name);
   };
 
-  const handleSuggestionSelectChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    const label = e.target.value;
-    const selectedSpreads = suggestedSpreads?.find((s) => s.label === label) ?? defaultSuggestedSpreads.find((s) => s.label === label);
-    if (!selectedSpreads) return;
-    const { nature: newNature, evs: newEvs } = selectedSpreads;
-    teamState.updatePokemonInTeam(tabIdx, 'nature', newNature);
-    teamState.updatePokemonInTeam(tabIdx, 'evs', newEvs);
-  };
-
   const handleEVInputChange = (e: ChangeEvent<HTMLInputElement>, ev: number, stat: string) => {
     let newEv = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
-    newEv = Number.isNaN(newEv) ? (evs as unknown as { [s: string]: number })[stat] ?? 0 : Math.min(newEv, getSingleEvUpperLimit(evs, ev));
+    newEv = Number.isNaN(newEv) ? (evs as unknown as { [s: string]: number })[stat] ?? 0 : Math.min(newEv, getSingleEvUpperLimit(evs, ev, teamState.format));
     setEvs((old) => ({ ...old, [stat]: newEv }));
   };
 
@@ -110,6 +85,7 @@ function StatsSetters() {
   };
 
   const handleIVInputChange = (e: ChangeEvent<HTMLInputElement>, stat: string) => {
+    if (!canCustomizeIvs) return;
     const newIv = Math.min(Number(e.target.value), 31);
     setIvs((old) => ({ ...old, [stat]: newIv }));
     teamState.updatePokemonInTeam(tabIdx, 'ivs', {
@@ -125,7 +101,7 @@ function StatsSetters() {
         <span></span>
         <span>{t('common.stats.base')}</span>
         <span className="invisible md:visible">{t('common.nature')}</span>
-        <span className="mx-2 md:mx-0">{t('common.evs')}</span>
+        <span className="mx-2 md:mx-0">{evLabel}</span>
         <span className="col-span-6"></span>
         <span>{t('common.ivs')}</span>
         <span>{t('common.stats.stats')}</span>
@@ -133,7 +109,7 @@ function StatsSetters() {
       {/* Sliders */}
       {['hp', 'atk', 'def', 'spa', 'spd', 'spe'].map((stat: string) => {
         const b = (base as { [s: string]: number })[stat] ?? 0;
-        const iv = (ivs as { [s: string]: number })[stat] ?? 31;
+        const iv = canCustomizeIvs ? (ivs as { [s: string]: number })[stat] ?? 31 : 31;
         const ev = (evs as { [s: string]: number })[stat] ?? 0;
         const lv = teamState.getPokemonInTeam(tabIdx)?.level ?? 50;
         return (
@@ -178,8 +154,8 @@ function StatsSetters() {
               aria-label={`${stat} EV input`}
               id={`ev-${stat}-number`}
               min="0"
-              max="252"
-              step="4"
+              max={evLimits.single}
+              step={evLimits.step}
               value={ev}
               className={`input-bordered ${
                 nature.plus === stat ? 'input-primary' : nature.minus === stat ? 'input-secondary' : ''
@@ -197,15 +173,15 @@ function StatsSetters() {
               aria-label={`${stat} EV slider`}
               id={`ev-${stat}-range`}
               min="0"
-              max="252"
-              step="4"
+              max={evLimits.single}
+              step={evLimits.step}
               value={ev}
               className="range range-xs col-span-5 md:range-sm"
               onChange={(e) => handleEVInputChange(e, ev, stat)}
               onMouseUp={(e) => handleEVInputDone(e, stat)}
               onTouchEnd={(e) => handleEVInputDone(e, stat)}
             />
-            {/* IVs - number input */}
+            {/* IVs - number input, read-only in formats without IVs (Champions) */}
             <input
               type="number"
               role="spinbutton"
@@ -213,13 +189,21 @@ function StatsSetters() {
               id={`iv-${stat}-number`}
               min="0"
               max="31"
-              value={iv}
+              value={canCustomizeIvs ? iv : 31}
+              disabled={!canCustomizeIvs}
+              title={
+                canCustomizeIvs
+                  ? undefined
+                  : t('room.ivsNotCustomizable', {
+                      defaultValue: 'This format has no IVs; every Pokémon has 31 in every stat.',
+                    })
+              }
               className="input input-bordered input-xs appearance-none md:input-sm"
               onChange={(e) => handleIVInputChange(e, stat)}
             />
             {/* Final Stat */}
             <span role="cell" aria-label={`${stat} stat`}>
-              {getStats(stat, b, ev, iv, nature, lv)}
+              {getStats(stat, b, ev, iv, nature, lv, teamState.format)}
             </span>
           </div>
         );
@@ -239,27 +223,8 @@ function StatsSetters() {
         </select>
         {/* Left */}
         <span className="col-span-2 text-center font-bold uppercase" role="columnheader">
-          {getLeftEVs(evs)}
+          {getLeftEVs(evs, teamState.format)}
         </span>
-        {/* Suggestion Selector */}
-        <select
-          className="select select-bordered select-xs col-span-6 md:select-sm"
-          defaultValue=""
-          onChange={handleSuggestionSelectChange}
-          role="listbox"
-          aria-label={t('room.suggestion.placeholder')}
-        >
-          <option value="" disabled>
-            {t('room.suggestion.placeholder')}
-          </option>
-          {(suggestedSpreads || []).concat(defaultSuggestedSpreads).map(({ label }) => (
-            <option key={label} value={label}>
-              {t(`room.suggestion.defaultOptions.${label}`, {
-                defaultValue: label,
-              })}
-            </option>
-          ))}
-        </select>
       </div>
     </>
   );

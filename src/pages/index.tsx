@@ -10,10 +10,11 @@ import { PokemonIcon } from '@/components/icons/PokemonIcon';
 import { Main } from '@/components/layout/Main';
 import type { WorkspaceProps } from '@/components/workspace';
 import FormatManager from '@/models/FormatManager';
-import { supportedProtocols } from '@/providers';
+import { defaultProtocol, selectableProtocols } from '@/providers';
 import { AppConfig } from '@/utils/AppConfig';
 import { S4 } from '@/utils/Helpers';
 import { getRandomTrainerName, isValidPokePasteURL } from '@/utils/PokemonUtils';
+import { buildRoomHref } from '@/utils/RoomRoute';
 import { IndexedDBTeam } from '@/utils/Types';
 
 type RoomFormProps = WorkspaceProps & {
@@ -29,7 +30,7 @@ const RoomForm = () => {
   const { register, handleSubmit, setValue } = useForm<RoomFormProps>({
     defaultValues: {
       roomName: `newroom_${S4()}${S4()}`,
-      protocolName: 'WebSocket',
+      protocolName: defaultProtocol,
       format: formatManager.defaultFormat.id,
     },
   });
@@ -54,14 +55,19 @@ const RoomForm = () => {
   const gotoRoom = ({ roomName, protocolName, userName, pokePasteUrl, format }: RoomFormProps) => {
     // store username in localStorage for future use
     localStorage.setItem('username', userName);
-    // build the target room route
-    let targetRoomRoute = `/${router.locale}/room/${encodeURIComponent(roomName)}?protocol=${encodeURIComponent(protocolName)}`;
-    if (isValidPokePasteURL(pokePasteUrl)) {
-      targetRoomRoute += `&pokepaste=${encodeURIComponent(pokePasteUrl!)}`;
-    }
-    if (format && formatManager.isSupportedFormatId(format) && !formatManager.isDefaultFormatId(format)) {
-      targetRoomRoute += `&format=${encodeURIComponent(format)}`;
-    }
+    // build the target room route.
+    // `router.locale` is undefined when i18n routing is off (the static export), so
+    // only prefix a locale when there actually is one. window.open does not apply
+    // basePath the way next/router does, so add it explicitly.
+    const localePrefix = router.locale ? `/${router.locale}` : '';
+    const targetRoomRoute =
+      router.basePath +
+      localePrefix +
+      buildRoomHref(roomName, {
+        protocol: protocolName,
+        pokepaste: isValidPokePasteURL(pokePasteUrl) ? pokePasteUrl : undefined,
+        format: format && formatManager.isSupportedFormatId(format) && !formatManager.isDefaultFormatId(format) ? format : undefined,
+      });
     // use window.open instead of next/router to disable go back
     window.open(targetRoomRoute, '_self');
   };
@@ -169,7 +175,7 @@ const RoomForm = () => {
           <span className="label-text after:text-error after:content-['_*']">{t('home.form.protocol.label')}</span>
         </label>
         <div id={'Protocol'} className="form-control flex-row-reverse justify-between">
-          {supportedProtocols.map((protocol) => (
+          {selectableProtocols.map((protocol) => (
             <div id="protocol-radio-group" key={protocol} className="flex">
               <label className="badge flex" htmlFor={protocol}>
                 {protocol}
@@ -269,7 +275,7 @@ const RoomHistory = () => {
                 role="link"
                 aria-label={`Room ${key} link`}
                 className="btn no-animation flex-1 text-xs normal-case"
-                onClick={() => router.push(`/room/${key}`)}
+                onClick={() => router.push(buildRoomHref(key))}
               >
                 <div className="flex flex-col justify-between">
                   <span className="whitespace-nowrap">{`[${room?.format}] ${key}`}</span>
@@ -321,7 +327,7 @@ const Index = () => {
       <div
         className="hero h-main"
         style={{
-          background: 'url(/assets/images/hero.jpg) no-repeat center center fixed',
+          background: `url(${basePath}/assets/images/hero.jpg) no-repeat center center fixed`,
           backgroundSize: 'cover',
         }}
       >
@@ -361,10 +367,12 @@ const Index = () => {
   );
 };
 
-export async function getStaticProps({ locale }: { locale: string }) {
+// `locale` is undefined when i18n routing is off, which is the case for the
+// static export -- next-i18next throws rather than defaulting, so fall back here.
+export async function getStaticProps({ locale }: { locale?: string }) {
   return {
     props: {
-      ...(await serverSideTranslations(locale, ['common', 'home'])),
+      ...(await serverSideTranslations(locale ?? AppConfig.defaultLocale, ['common', 'home'])),
     },
   };
 }

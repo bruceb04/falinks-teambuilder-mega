@@ -1,5 +1,4 @@
 import { Item } from '@pkmn/data';
-import { DisplayUsageStatistics } from '@pkmn/smogon';
 import {
   ColumnDef,
   ColumnFiltersState,
@@ -13,59 +12,17 @@ import {
 } from '@tanstack/react-table';
 import { useTranslation } from 'next-i18next';
 import { useContext, useEffect, useMemo, useState } from 'react';
-import useSWR from 'swr';
 
 import { ItemIcon } from '@/components/icons/ItemIcon';
 import Table from '@/components/table';
 import { StoreContext } from '@/components/workspace/Contexts/StoreContext';
 import DexSingleton from '@/models/DexSingleton';
 
-const defaultPopularItems = [
-  'Aguav Berry',
-  'Assault Vest',
-  'Choice Band',
-  'Choice Scarf',
-  'Choice Specs',
-  'Eviolite',
-  'Expert Belt',
-  'Figy Berry',
-  'Focus Sash',
-  'Iapapa Berry',
-  'Leftovers',
-  'Life Orb',
-  'Mago Berry',
-  'Mental Herb',
-  'Power Herb',
-  'Rocky Helmet',
-  'Shuca Berry',
-  'Sitrus Berry',
-  'Weakness Policy',
-  'Wiki Berry',
-];
-
 function ItemsTable() {
   const { t } = useTranslation(['common', 'items', 'item_descriptions']);
-  const { teamState, tabIdx, focusedFieldState, focusedFieldDispatch, globalFilter, setGlobalFilter, formatManager } = useContext(StoreContext);
+  const { teamState, tabIdx, focusedFieldState, focusedFieldDispatch, globalFilter, setGlobalFilter } = useContext(StoreContext);
 
-  // fetch popular items by Pokémon
-  const { species } = teamState.getPokemonInTeam(tabIdx) ?? {};
-  const { data: popularItemNames } = useSWR<string[]>( // item names
-    species ? `/api/usages/stats/${species}?format=${teamState.format}&gen=${formatManager.getFormatById(teamState.format)?.gen}&items=true` : null, // ?items=true doesn't work in the API, only used as a cache buster for SWR.
-    {
-      fallbackData: defaultPopularItems,
-      fetcher: (u: string) =>
-        fetch(u)
-          .then((r) => r.json())
-          .then((d: DisplayUsageStatistics) => Object.keys(d?.items ?? {})),
-    },
-  );
-
-  // move popular items to the top
-  const data = useMemo<Item[]>(() => {
-    const gen = DexSingleton.getGenByFormat(teamState.format);
-    const popularItem = popularItemNames ?? defaultPopularItems;
-    return popularItem.flatMap((i) => gen.items.get(i) || []).concat(Array.from(gen.items).filter(({ name }) => !popularItem.includes(name)));
-  }, [popularItemNames]);
+  const data = useMemo<Item[]>(() => Array.from(DexSingleton.getGenByFormat(teamState.format).items), [teamState.format]);
 
   // a filter that supports searching by translated name
   const i18nFilterFn: FilterFnOption<Item> = (row, columnId, filterValue) =>

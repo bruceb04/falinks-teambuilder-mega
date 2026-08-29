@@ -6,6 +6,19 @@ class FormatManager {
   constructor() {
     this.formats = [
       {
+        // Pokémon Champions: no IVs, Stat Points instead of EVs, its own roster and item pool.
+        // See `src/utils/ChampionsData.ts` for the data behind the format.
+        id: 'championsvgc2026regmb',
+        name: '[Champions] VGC 2026 Regulation M-B',
+        gen: 9,
+        gameType: 'doubles',
+        defaultLevel: 50,
+        defaultSpeciesName: 'Garchomp',
+        isIndexedAsUsage: false,
+        isVGC: true,
+        isChampions: true,
+      },
+      {
         id: 'gen9vgc2024regg',
         name: '[Gen 9] VGC 2024 Regulation G',
         gen: 9,
